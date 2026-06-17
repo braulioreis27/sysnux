@@ -135,5 +135,4 @@ GNU General Public License v3.0 — veja o arquivo [LICENSE](LICENSE).
 
 **Bráulio Reis**
 
-- Email: braulioreis.ti@gmail.com
 - GitHub: [@braulioreis27](https://github.com/braulioreis27)

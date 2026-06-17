@@ -26,7 +26,7 @@ def run_command(command, timeout=None):
 
 def check_internet():
     for host in ["8.8.8.8", "1.1.1.1"]:
-        success, _ = run_command(f"ping -c 1 -W 2 {host}")
+        success, _ = run_command(f"ping -c 1 -W 2 {host}", timeout=5)
         if success:
             return True
     return False
@@ -43,6 +43,7 @@ class TaskRunner(QThread):
         self.args = args
         self.kwargs = kwargs
         self._cancelled = False
+        self._had_failure = False
 
     def run(self):
         try:
@@ -53,8 +54,14 @@ class TaskRunner(QThread):
                 if isinstance(item, int):
                     self.progress.emit(item)
                 else:
-                    self.output.emit(str(item))
-            self.finished.emit(True, "Concluído com sucesso")
+                    text = str(item)
+                    if text.startswith("[FALHA]") or text.startswith("[ERRO]"):
+                        self._had_failure = True
+                    self.output.emit(text)
+            if self._had_failure:
+                self.finished.emit(False, "Algumas tarefas falharam")
+            else:
+                self.finished.emit(True, "Concluído com sucesso")
         except Exception as e:
             self.finished.emit(False, f"Erro: {e}")
 

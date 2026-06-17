@@ -1,3 +1,4 @@
+import os
 from sysnux.utils.runner import run_command
 from sysnux.modules.system import detect_gpu
 
@@ -15,17 +16,19 @@ def menu_drivers_gpu(nvidia_opcao="1", amd_opcao="1", intel_opcao="0"):
         yield "[INFO] NVIDIA Optimus detectado!"
         if nvidia_opcao == "1":
             ok, _ = run_command("apt-get install -y nvidia-driver-535 nvidia-prime")
-            yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA Prime"
+            yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 535 + Prime"
             run_command("prime-select on-demand 2>/dev/null || true")
             yield "[OK] prime-select on-demand"
         elif nvidia_opcao == "2":
-            run_command("prime-select intel 2>/dev/null || true")
-            yield "[OK] Apenas Intel"
+            ok, _ = run_command("apt-get install -y nvidia-driver-550 nvidia-prime")
+            yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 550 + Prime"
+            run_command("prime-select on-demand 2>/dev/null || true")
+            yield "[OK] prime-select on-demand"
         elif nvidia_opcao == "3":
-            ok, _ = run_command("apt-get install -y nvidia-driver-535")
-            yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA driver"
-            run_command("prime-select nvidia 2>/dev/null || true")
-            yield "[OK] Apenas NVIDIA"
+            ok, _ = run_command("apt-get install -y nvidia-driver-535 nvidia-cuda-toolkit nvidia-prime")
+            yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 535 + CUDA + Prime"
+            run_command("prime-select on-demand 2>/dev/null || true")
+            yield "[OK] prime-select on-demand"
         return
 
     for gpu in gpus:
@@ -35,8 +38,8 @@ def menu_drivers_gpu(nvidia_opcao="1", amd_opcao="1", intel_opcao="0"):
                 ok, _ = run_command("apt-get install -y nvidia-driver-535")
                 yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 535 (Estável)"
             elif nvidia_opcao == "2":
-                ok, _ = run_command("apt-get install -y nvidia-driver-545")
-                yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 545 (Recente)"
+                ok, _ = run_command("apt-get install -y nvidia-driver-550")
+                yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 550 (Recente)"
             elif nvidia_opcao == "3":
                 ok, _ = run_command("apt-get install -y nvidia-driver-535 nvidia-cuda-toolkit")
                 yield f"{'[OK]' if ok else '[FALHA]'} NVIDIA 535 + CUDA"

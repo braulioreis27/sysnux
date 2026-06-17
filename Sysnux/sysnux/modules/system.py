@@ -1,7 +1,8 @@
 import os
 import re
 
-from sysnux.utils.runner import run_command
+from packaging.version import parse as parse_version
+from sysnux.utils.runner import run_command, check_internet
 
 
 def detect_distro():
@@ -49,13 +50,16 @@ def detect_gpu():
     success, output = run_command("lspci")
     if success:
         for line in output.lower().split("\n"):
-            if "vga" in line or "3d" in line:
+            if "vga" in line or "3d" in line or "display" in line:
                 if "nvidia" in line:
-                    gpus.append("nvidia")
+                    if "nvidia" not in gpus:
+                        gpus.append("nvidia")
                 if "amd" in line or "ati" in line:
-                    gpus.append("amd")
+                    if "amd" not in gpus:
+                        gpus.append("amd")
                 if "intel" in line:
-                    gpus.append("intel")
+                    if "intel" not in gpus:
+                        gpus.append("intel")
     return gpus if gpus else ["desconhecida"]
 
 
@@ -65,7 +69,6 @@ def detect_tipo_sistema():
     try:
         supplies = os.listdir("/sys/class/power_supply")
         has_battery = any("BAT" in s for s in supplies)
-        has_ac = any("AC" in s for s in supplies)
         return "notebook" if has_battery else "desktop"
     except PermissionError:
         return "desktop"
@@ -120,6 +123,35 @@ def get_ip_address():
 def get_hostname():
     success, output = run_command("hostname")
     return output if success else ""
+
+
+def verificar_update():
+    """Checa GitHub releases por versão mais recente.
+    Retorna (tem_update, latest_tag, download_url) ou (False, '', '').
+    """
+    if not check_internet():
+        return (False, "", "")
+    ok, out = run_command(
+        "curl -sL --connect-timeout 5 --max-time 10 "
+        "https://api.github.com/repos/braulioreis27/sysnux/releases/latest 2>/dev/null "
+        "| python3 -c \"import json,sys; d=json.load(sys.stdin); "
+        "print(d['tag_name']); print(d['html_url'])\" 2>/dev/null"
+    )
+    if not ok or not out:
+        return (False, "", "")
+    lines = out.strip().split("\n")
+    if len(lines) < 2:
+        return (False, "", "")
+    latest = lines[0].strip()
+    url = lines[1].strip()
+    from sysnux import __version__
+    try:
+        current_ver = parse_version(__version__)
+        latest_ver = parse_version(latest.lstrip("v"))
+        has_update = latest_ver > current_ver
+    except Exception:
+        has_update = latest != __version__
+    return (has_update, latest, url)
 
 
 def collect_system_info():

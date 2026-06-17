@@ -1,3 +1,6 @@
+import os
+from datetime import datetime
+
 from sysnux.utils.runner import run_command
 from sysnux.modules.system import detect_tipo_sistema
 
@@ -98,19 +101,29 @@ ACTION=="add|change", KERNEL=="nvme*", ATTR{queue/scheduler}="none"
     except PermissionError:
         yield "[FALHA] Permissão negada"
         return
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_command(f"cp /etc/fstab /etc/fstab.bak.{timestamp} 2>/dev/null || true")
     ok, out = run_command("sed -i 's/relatime/noatime/g' /etc/fstab 2>/dev/null || true")
     yield f"{'[OK]' if ok else '[AVISO]'} noatime configurado"
+    yield f"[INFO] Backup do fstab salvo em /etc/fstab.bak.{timestamp}"
     yield "[SUCESSO] SSD otimizado"
 
 
 def configurar_grub():
     yield "[INFO] Configurando GRUB..."
-    _, out = run_command("sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=3/' /etc/default/grub 2>/dev/null || true")
-    _, out = run_command("""sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash /' /etc/default/grub 2>/dev/null || true""")
-    _, out = run_command("grep -q '^GRUB_DISABLE_OS_PROBER' /etc/default/grub 2>/dev/null || echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_command(f"cp /etc/default/grub /etc/default/grub.bak.{timestamp} 2>/dev/null || true")
+
+    run_command("sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=3/' /etc/default/grub 2>/dev/null || true")
+
+    ok, out = run_command(r"""sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1"/' /etc/default/grub 2>/dev/null || true""")
+    run_command(r"""sed -i 's/ quiet splash//g;s/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 quiet splash"/' /etc/default/grub 2>/dev/null || true""")
+    run_command("grep -q '^GRUB_CMDLINE_LINUX_DEFAULT' /etc/default/grub 2>/dev/null || echo 'GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash\"' >> /etc/default/grub")
+    run_command("grep -q '^GRUB_DISABLE_OS_PROBER' /etc/default/grub 2>/dev/null || echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub")
     ok4, out = run_command("update-grub")
     yield "[OK] GRUB: timeout=3, splash silencioso"
     yield f"{'[OK]' if ok4 else '[FALHA]'} update-grub"
+    yield f"[INFO] Backup do grub salvo em /etc/default/grub.bak.{timestamp}"
     yield "[SUCESSO] GRUB configurado"
 
 
@@ -129,4 +142,6 @@ def limpar_sistema():
     yield "[OK] Logs antigos (7d)"
     run_command("find /var/log -type f -name '*.log' -mtime +30 -delete 2>/dev/null || true")
     yield "[OK] Logs com +30 dias removidos"
+    run_command("rm -rf /tmp/* 2>/dev/null || true")
+    yield "[OK] Temporários removidos"
     yield "[SUCESSO] Limpeza concluída"

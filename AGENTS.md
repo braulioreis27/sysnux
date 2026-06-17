@@ -6,7 +6,7 @@
 - `Sysnux/` — Projeto Python/PySide6 com interface gráfica. Portabilidade do script original.
 - `Sysnux/main.py` — Entrypoint. Checa root e relança via `pkexec` se necessário.
 - `Sysnux/sysnux/modules/` — Lógica portada do Bash, um arquivo por domínio.
-- `Sysnux/sysnux/ui/main_window.py` — GUI principal com 12 páginas em QStackedWidget + sidebar.
+- `Sysnux/sysnux/ui/main_window.py` — GUI principal com 12 páginas em QStackedWidget + sidebar + barra de título personalizada.
 
 ## Comandos essenciais
 
@@ -17,7 +17,7 @@ source Sysnux/venv/bin/activate
 # Executar em desenvolvimento (abre janela)
 python3 Sysnux/main.py
 
-# Compilar executável standalone (65MB)
+# Compilar executável standalone (65MB) usando spec file
 Sysnux/build.sh
 # Resultado: Sysnux/dist/Sysnux
 
@@ -28,15 +28,17 @@ pkexec env DISPLAY=$DISPLAY ./Sysnux/dist/Sysnux
 ## Arquitetura
 
 - **GUI**: PySide6 (Qt for Python). Tema escuro customizado via stylesheets.
+- **Barra de título**: Personalizada com botões `─` (minimizar) e `✕` (fechar com confirmação), sem remover o titlebar nativo do WM.
 - **Threading**: Cada operação é um generator Python executado em `QThread` via `TaskRunner`. A GUI nunca bloqueia.
 - **Elevação de privilégios**: O app solicita root via `pkexec` no startup. Todas as operações de sistema assumem root. O ambiente gráfico é preservado exportando `DISPLAY`, `XAUTHORITY`, `XDG_RUNTIME_DIR`.
 - **Console**: Widget customizado `OutputConsole` com cores por nível (`[OK]`, `[ERRO]`, `[AVISO]`, `[INFO]`).
+- **Build**: PyInstaller via `Sysnux.spec` (fonte única de verdade). `build.sh` usa o spec file.
 
 ## Módulos (Sysnux/sysnux/modules/)
 
 | Arquivo | Domínio |
 |---|---|
-| `system.py` | Detecção de hardware/distro/kernel/rede |
+| `system.py` | Detecção de hardware/distro/kernel/rede (usa `packaging.version` para comparação) |
 | `optimizations.py` | Kernel, SSD, GRUB, ZRAM, TLP, firewall, limpeza |
 | `packages.py` | APT, codecs, temas, navegadores, dev tools, Flatpak/Snap |
 | `gpu.py` | Drivers NVIDIA/AMD/Intel com suporte a Optimus |
@@ -57,3 +59,5 @@ pkexec env DISPLAY=$DISPLAY ./Sysnux/dist/Sysnux
 - PySide6 `setTextColor` não existe (PyQt legado). Usar `QTextCharFormat.setForeground()`.
 - O virtual environment (`venv/`) é necessário para desenvolvimento. PEP 668 bloqueia `pip install --system`.
 - O script Bash original (`pos-formatacao_linux.sh`) é a referência canônica para implementação de novas features.
+- A comparação de versão entre GitHub releases e local usa `packaging.version.parse()`.
+- O build depende do `Sysnux.spec` como fonte única; `build.sh` delega ao spec file.

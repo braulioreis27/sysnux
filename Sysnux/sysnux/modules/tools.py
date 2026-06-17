@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 from sysnux.utils.runner import run_command
 from sysnux.modules.system import (
     get_cpu_info, get_memory_info, get_disk_info,
@@ -29,9 +32,73 @@ def diagnostico_hardware():
     yield "=== Temperaturas ==="
     ok, out = run_command("sensors 2>/dev/null | grep -E 'Core|Package|temp|fan' | head -10")
     if ok and out:
-        for line in out.split("\n"):
+        for line in out.strip().split("\n"):
             yield f"  {line}"
+    yield ""
+    yield "=== Dispositivos de Áudio ==="
+    ok, out = run_command("lspci 2>/dev/null | grep -i audio || true")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    else:
+        yield "  N/A"
     yield "[SUCESSO] Diagnóstico concluído"
+
+
+def listar_dispositivos_usb_pci():
+    yield "=== Dispositivos PCI ==="
+    ok, out = run_command("lspci -nn 2>/dev/null | head -30")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    else:
+        yield "  lspci não disponível"
+    yield ""
+    yield "=== Dispositivos USB ==="
+    ok, out = run_command("lsusb 2>/dev/null | head -20")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    else:
+        yield "  lsusb não disponível"
+    yield ""
+    yield "=== Módulos de Kernel Carregados ==="
+    ok, out = run_command("lsmod 2>/dev/null | head -20")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    else:
+        yield "  lsmod não disponível"
+    yield "[SUCESSO] Informações de hardware listadas"
+
+
+def info_dmi_bios():
+    yield "=== BIOS/UEFI ==="
+    ok, out = run_command("dmidecode -t bios 2>/dev/null | grep -E 'Vendor|Version|Release' | head -5")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    else:
+        yield "  dmidecode não instalado ou sem suporte"
+    yield ""
+    yield "=== Placa Mãe ==="
+    ok, out = run_command("dmidecode -t baseboard 2>/dev/null | grep -E 'Manufacturer|Product|Version' | head -3")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    yield ""
+    yield "=== Chassis / Sistema ==="
+    ok, out = run_command("dmidecode -t system 2>/dev/null | grep -E 'Manufacturer|Product|Version|Serial' | head -5")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    yield ""
+    yield "=== Memória Física (slots) ==="
+    ok, out = run_command("dmidecode -t memory 2>/dev/null | grep -E 'Size|Type|Speed|Manufacturer|Locator' | head -20")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
+    yield "[SUCESSO] Informações DMI/BIOS coletadas"
 
 
 def teste_smart():
@@ -105,13 +172,18 @@ def benchmark_disco(disco=None):
             yield f"  {line}"
     else:
         yield "[AVISO] hdparm não disponível ou falhou"
-    ok, out = run_command(f"dd if=/dev/zero of=/tmp/.sysnux_bench bs=1M count=512 conv=fdatasync 2>&1 | tail -1")
-    if ok and out:
-        yield f"  Escrita: {out}"
-    ok, out = run_command(f"dd if=/tmp/.sysnux_bench of=/dev/null bs=1M count=512 2>&1 | tail -1")
-    if ok and out:
-        yield f"  Leitura: {out}"
-    run_command("rm -f /tmp/.sysnux_bench")
+    tmp = tempfile.NamedTemporaryFile(prefix="sysnux_bench_", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    try:
+        ok, out = run_command(f"dd if=/dev/zero of={tmp_path} bs=1M count=512 conv=fdatasync 2>&1 | tail -1")
+        if ok and out:
+            yield f"  Escrita: {out}"
+        ok, out = run_command(f"dd if={tmp_path} of=/dev/null bs=1M count=512 2>&1 | tail -1")
+        if ok and out:
+            yield f"  Leitura: {out}"
+    finally:
+        os.unlink(tmp_path)
     yield "[SUCESSO] Benchmark concluído"
 
 
@@ -138,9 +210,21 @@ def analise_boot():
 
 def saude_bateria():
     yield "=== Informações da Bateria ==="
-    ok, out = run_command("upower -i $(upower -e 2>/dev/null | grep -i battery | head -1) 2>/dev/null")
+    ok, out = run_command("upower -e 2>/dev/null")
     if ok and out:
-        yield out
+        bateria = ""
+        for line in out.strip().split("\n"):
+            if "battery" in line.lower():
+                bateria = line.strip()
+                break
+        if bateria:
+            ok2, out2 = run_command(f"upower -i {bateria} 2>/dev/null")
+            if ok2 and out2:
+                yield out2
+            else:
+                yield "  Falha ao obter informações da bateria"
+        else:
+            yield "  Nenhuma bateria detectada"
     else:
         ok, out = run_command("acpi -V 2>/dev/null")
         if ok and out:
@@ -197,6 +281,20 @@ def varredura_rootkit():
         else:
             yield "[AVISO] Nenhuma ferramenta de rootkit instalada"
             yield "[INFO] Instale com: apt install rkhunter"
+    yield ""
+    yield "=== Processos Suspeitos (CPU/MEM > 50%) ==="
+    ok, out = run_command("ps aux 2>/dev/null | awk '$3>50.0 || $4>50.0 {print \"  ALTA: \" $11 \" CPU:\" $3 \"% MEM:\" $4 \"%\"}' | head -5 || true")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield line
+    else:
+        yield "  Nenhum processo suspeito"
+    yield ""
+    yield "=== Portas Abertas Suspeitas ==="
+    ok, out = run_command("ss -tlnp 2>/dev/null | grep -vE '127.0.0.1|::1|0.0.0.0' | head -10")
+    if ok and out:
+        for line in out.strip().split("\n"):
+            yield f"  {line}"
     yield "[SUCESSO] Varredura concluída"
 
 

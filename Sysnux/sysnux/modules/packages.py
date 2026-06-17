@@ -1,5 +1,6 @@
 import os
 import tempfile
+import hashlib
 from sysnux.utils.runner import run_command, check_internet
 from sysnux.modules.system import detect_distro, detect_resolucao
 from sysnux.modules.optimizations import (
@@ -9,14 +10,45 @@ from sysnux.modules.optimizations import (
 )
 
 
+APT_UPDATED = False
+
+
+def apt_update():
+    global APT_UPDATED
+    if APT_UPDATED:
+        return True, "already updated"
+    ok, out = run_command("apt-get update")
+    if ok:
+        APT_UPDATED = True
+    return ok, out
+
+
 def apt_install(packages):
+    apt_update()
     ok, out = run_command(f"apt-get install -y {packages}")
     return ok, out
 
 
-def apt_update():
-    ok, out = run_command("apt-get update")
-    return ok, out
+def _instalar_deb_remoto(url, descricao):
+    if not check_internet():
+        yield f"[FALHA] Sem internet para baixar {descricao}"
+        return
+    yield f"[INFO] Baixando {descricao}..."
+    tmp = tempfile.NamedTemporaryFile(suffix=".deb", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    try:
+        ok, _ = run_command(f"wget -q --timeout=30 --tries=3 -O {tmp_path} '{url}'")
+        if not ok:
+            yield f"[FALHA] Download {descricao}"
+            return
+        ok, _ = run_command(f"dpkg -i {tmp_path} 2>/dev/null || true")
+        if not ok:
+            run_command(f"apt-get install -f -y")
+        yield f"[OK] {descricao} instalado"
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def instalar_codecs_fontes():
@@ -45,8 +77,9 @@ def instalar_temas():
     yield f"{'[OK]' if ok else '[FALHA]'} PPA Papirus"
     ok, _ = apt_install("papirus-icon-theme")
     yield f"{'[OK]' if ok else '[FALHA]'} Papirus Icon Theme"
-    ok, _ = apt_install("git")
-    yield f"{'[OK]' if ok else '[FALHA]'} Git"
+    if not run_command("command -v git")[0]:
+        ok, _ = apt_install("git")
+        yield f"{'[OK]' if ok else '[FALHA]'} Git"
     tmpdir = tempfile.mkdtemp()
     ok, out = run_command(f"git clone --depth=1 https://github.com/vinceliuice/Orchis-theme.git {tmpdir}/orchis 2>/dev/null")
     if ok:
@@ -84,18 +117,17 @@ def configurar_hidpi():
 
 
 def instalar_chrome():
-    yield "[INFO] Instalando Google Chrome..."
-    if not check_internet():
-        yield "[FALHA] Sem internet"
-        return
-    ok, out = run_command("wget -q --timeout=30 --tries=3 -O /tmp/chrome.deb 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb'")
-    if not ok:
-        yield "[FALHA] Download Chrome"
-        return
-    run_command("dpkg -i /tmp/chrome.deb 2>/dev/null || true")
-    run_command("apt-get install -f -y")
-    run_command("rm -f /tmp/chrome.deb")
-    yield "[OK] Google Chrome instalado"
+    yield from _instalar_deb_remoto(
+        "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+        "Google Chrome Estável"
+    )
+
+
+def instalar_chrome_beta():
+    yield from _instalar_deb_remoto(
+        "https://dl.google.com/linux/direct/google-chrome-beta_current_amd64.deb",
+        "Google Chrome Beta"
+    )
 
 
 def instalar_firefox():
@@ -121,48 +153,24 @@ def instalar_brave():
 
 
 def instalar_edge():
-    yield "[INFO] Instalando Microsoft Edge..."
-    if not check_internet():
-        yield "[FALHA] Sem internet"
-        return
-    ok, out = run_command("wget -q --timeout=30 --tries=3 -O /tmp/edge.deb 'https://packages.microsoft.com/repos/edge/pool/main/m/microsoft-edge-stable/microsoft-edge-stable_current_amd64.deb'")
-    if not ok:
-        yield "[FALHA] Download Edge"
-        return
-    run_command("dpkg -i /tmp/edge.deb 2>/dev/null || true")
-    run_command("apt-get install -f -y")
-    run_command("rm -f /tmp/edge.deb")
-    yield "[OK] Microsoft Edge instalado"
+    yield from _instalar_deb_remoto(
+        "https://packages.microsoft.com/repos/edge/pool/main/m/microsoft-edge-stable/microsoft-edge-stable_current_amd64.deb",
+        "Microsoft Edge"
+    )
 
 
 def instalar_vivaldi():
-    yield "[INFO] Instalando Vivaldi..."
-    if not check_internet():
-        yield "[FALHA] Sem internet"
-        return
-    ok, out = run_command("wget -q --timeout=30 --tries=3 -O /tmp/vivaldi.deb 'https://downloads.vivaldi.com/stable/vivaldi-stable_current_amd64.deb'")
-    if not ok:
-        yield "[FALHA] Download Vivaldi"
-        return
-    run_command("dpkg -i /tmp/vivaldi.deb 2>/dev/null || true")
-    run_command("apt-get install -f -y")
-    run_command("rm -f /tmp/vivaldi.deb")
-    yield "[OK] Vivaldi instalado"
+    yield from _instalar_deb_remoto(
+        "https://downloads.vivaldi.com/stable/vivaldi-stable_current_amd64.deb",
+        "Vivaldi"
+    )
 
 
 def instalar_opera():
-    yield "[INFO] Instalando Opera..."
-    if not check_internet():
-        yield "[FALHA] Sem internet"
-        return
-    ok, out = run_command("wget -q --timeout=30 --tries=3 -O /tmp/opera.deb 'https://download.opera.com/download/get/?id=41527&location=410&nothanks=yes'")
-    if not ok:
-        yield "[FALHA] Download Opera"
-        return
-    run_command("dpkg -i /tmp/opera.deb 2>/dev/null || true")
-    run_command("apt-get install -f -y")
-    run_command("rm -f /tmp/opera.deb")
-    yield "[OK] Opera instalado"
+    yield from _instalar_deb_remoto(
+        "https://download.opera.com/download/get/?id=41527&location=410&nothanks=yes",
+        "Opera"
+    )
 
 
 def instalar_dev_tools():
@@ -187,6 +195,69 @@ def instalar_dev_tools():
     yield "[SUCESSO] Ferramentas de desenvolvimento instaladas"
 
 
+def instalar_python311():
+    yield "[INFO] Instalando Python 3.11 via deadsnakes PPA..."
+    if not check_internet():
+        yield "[FALHA] Sem internet"
+        return
+    ok, _ = run_command("add-apt-repository -y ppa:deadsnakes/ppa && apt-get update")
+    if not ok:
+        yield "[FALHA] PPA deadsnakes"
+        return
+    ok, _ = apt_install("python3.11 python3.11-venv python3.11-dev")
+    yield f"{'[OK]' if ok else '[FALHA]'} Python 3.11"
+    if ok:
+        run_command("update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 2 2>/dev/null || true")
+    yield "[SUCESSO] Python 3.11 pronto"
+
+
+def instalar_nodejs():
+    yield "[INFO] Instalando Node.js LTS via NodeSource..."
+    if not check_internet():
+        yield "[FALHA] Sem internet"
+        return
+    ok, _ = run_command("curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - 2>/dev/null")
+    if not ok:
+        yield "[FALHA] NodeSource setup"
+        return
+    ok, _ = apt_install("nodejs")
+    yield f"{'[OK]' if ok else '[FALHA]'} Node.js + npm"
+    yield "[SUCESSO] Node.js pronto"
+
+
+def instalar_ghostty():
+    yield "[INFO] Instalando Ghostty Terminal..."
+    if not check_internet():
+        yield "[FALHA] Sem internet"
+        return
+    ok, _ = run_command("apt-get install -y ghostty 2>/dev/null")
+    if ok:
+        yield "[OK] Ghostty instalado via APT"
+    else:
+        yield "[INFO] Ghostty não encontrado nos repositórios, tentando Flatpak..."
+        ok2, _ = run_command("flatpak install -y flathub com.mitchellh.ghostty 2>/dev/null")
+        if ok2:
+            yield "[OK] Ghostty instalado via Flatpak"
+        else:
+            yield "[FALHA] Ghostty não pôde ser instalado"
+            return
+    yield "[SUCESSO] Ghostty pronto"
+
+
+def instalar_opencode():
+    yield "[INFO] Instalando Opencode CLI..."
+    if not check_internet():
+        yield "[FALHA] Sem internet"
+        return
+    ok, out = run_command("curl -fsSL https://opencode.ai/install | bash 2>/dev/null")
+    if ok:
+        yield "[OK] Opencode CLI instalado"
+    else:
+        yield f"[FALHA] Opencode CLI: {out.strip() or 'erro no instalador'}"
+        return
+    yield "[SUCESSO] Opencode pronto"
+
+
 def instalar_flatpak_suporte():
     yield "[INFO] Instalando suporte Flatpak..."
     ok, _ = apt_install("flatpak")
@@ -196,6 +267,36 @@ def instalar_flatpak_suporte():
     yield "[SUCESSO] Flatpak pronto"
 
 
+def atualizar_flatpaks():
+    yield "[INFO] Atualizando Flatpaks..."
+    ok, out = run_command("command -v flatpak 2>/dev/null")
+    if not ok:
+        yield "[FALHA] Flatpak não está instalado"
+        return
+    ok, _ = run_command("flatpak update -y --noninteractive 2>/dev/null")
+    yield f"{'[OK]' if ok else '[FALHA]'} Flatpaks atualizados"
+    yield "[SUCESSO] Flatpaks atualizados"
+
+
+def remover_flatpak():
+    yield "[INFO] Removendo Flatpak e todos os aplicativos..."
+    ok, out = run_command("command -v flatpak 2>/dev/null")
+    if ok:
+        ok2, out2 = run_command("flatpak list --app --columns=application 2>/dev/null || true")
+        if ok2 and out2:
+            for app in out2.strip().split("\n"):
+                app = app.strip()
+                if app:
+                    run_command(f"flatpak uninstall --noninteractive {app} 2>/dev/null || true")
+                    yield f"[OK] Flatpak removido: {app}"
+        run_command("flatpak uninstall --unused --noninteractive 2>/dev/null || true")
+        run_command("flatpak remote-delete --force flathub 2>/dev/null || true")
+    run_command("apt-get purge --auto-remove -y flatpak 2>/dev/null || true")
+    run_command("rm -rf /var/lib/flatpak ~/.local/share/flatpak /root/.local/share/flatpak 2>/dev/null")
+    yield "[OK] Flatpak e dependências removidos"
+    yield "[SUCESSO] Flatpak removido"
+
+
 def instalar_snap_suporte():
     yield "[INFO] Instalando Snap..."
     ok, _ = apt_install("snapd")
@@ -203,6 +304,36 @@ def instalar_snap_suporte():
     run_command("systemctl enable --now snapd 2>/dev/null || true")
     yield "[OK] Snapd ativado"
     yield "[SUCESSO] Snap pronto"
+
+
+def atualizar_snaps():
+    yield "[INFO] Atualizando Snaps..."
+    ok, out = run_command("command -v snap 2>/dev/null")
+    if not ok:
+        yield "[FALHA] Snap não está instalado"
+        return
+    ok, _ = run_command("snap refresh 2>/dev/null")
+    yield f"{'[OK]' if ok else '[FALHA]'} Snaps atualizados"
+    yield "[SUCESSO] Snaps atualizados"
+
+
+def remover_snap():
+    yield "[INFO] Removendo Snap e todos os snaps..."
+    ok, out = run_command("command -v snap 2>/dev/null")
+    if ok:
+        ok2, out2 = run_command("snap list 2>/dev/null | awk 'NR>1 {print $1}'")
+        if ok2 and out2:
+            for sp in out2.strip().split("\n"):
+                sp = sp.strip()
+                if sp:
+                    run_command(f"snap remove --purge {sp} 2>/dev/null || true")
+                    yield f"[OK] Snap removido: {sp}"
+        run_command("systemctl stop snapd 2>/dev/null || true")
+        run_command("systemctl disable snapd 2>/dev/null || true")
+    run_command("apt-get purge --auto-remove -y snapd 2>/dev/null || true")
+    run_command("rm -rf /var/snap /snap ~/snap /root/snap /var/cache/snapd 2>/dev/null")
+    yield "[OK] Snap e dependências removidos"
+    yield "[SUCESSO] Snap removido"
 
 
 def setup_completo():

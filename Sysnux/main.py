@@ -9,11 +9,20 @@ import subprocess
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette, QIcon
 
 from sysnux import __version__, __app_name__
 from sysnux.utils.runner import is_root
 from sysnux.utils.logging import setup_logging
 from sysnux.ui.main_window import MainWindow
+
+
+def get_asset_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, relative_path)
 
 
 def check_root_and_relaunch():
@@ -63,8 +72,18 @@ def check_root_and_relaunch():
             cmd.append(sys.executable)
         cmd.append(script_path)
 
-        subprocess.run(cmd)
-        sys.exit(0)
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Critical)
+            msg.setWindowTitle("Sysnux - Erro")
+            msg.setText("Falha ao elevar privilégios.")
+            msg.setInformativeText(
+                "O pkexec retornou um erro. "
+                "Tente executar manualmente com sudo."
+            )
+            msg.exec()
+        sys.exit(result.returncode)
 
     sys.exit(1)
 
@@ -75,8 +94,13 @@ def main():
     app.setApplicationVersion(__version__)
     app.setStyle("Fusion")
 
+    icon_path = get_asset_path("logo/icon.png")
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        app.setWindowIcon(app_icon)
+
     palette = app.palette()
-    palette.setColor(app.palette().ColorRole.Window, Qt.GlobalColor.black)
+    palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.black)
     app.setPalette(palette)
 
     setup_logging()

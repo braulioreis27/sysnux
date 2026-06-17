@@ -39,21 +39,11 @@ echo ""
 mkdir -p dist
 
 pyinstaller \
-    --name "Sysnux" \
-    --onefile \
-    --windowed \
     --clean \
     --noconfirm \
-    --add-data "sysnux:sysnux" \
-    --hidden-import "PySide6.QtXml" \
-    --hidden-import "sysnux" \
-    --hidden-import "sysnux.ui" \
-    --hidden-import "sysnux.ui.widgets" \
-    --hidden-import "sysnux.modules" \
-    --hidden-import "sysnux.utils" \
     --distpath "dist" \
     --workpath "build" \
-    main.py
+    Sysnux.spec
 
 echo ""
 echo "============================================="

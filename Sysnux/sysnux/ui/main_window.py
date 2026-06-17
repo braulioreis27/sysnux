@@ -1,14 +1,19 @@
+from functools import partial
+from datetime import datetime
+
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QStackedWidget, QLabel, QScrollArea, QCheckBox, QGroupBox,
-    QProgressBar, QFrame, QRadioButton, QButtonGroup
+    QProgressBar, QFrame, QRadioButton, QButtonGroup, QMessageBox,
+    QSizePolicy
 )
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap
 
+from sysnux import __version__
 from sysnux.utils.runner import TaskRunner, check_internet, run_command
 from sysnux.modules import system as sys_module
-from sysnux.modules.system import collect_system_info
+from sysnux.modules.system import collect_system_info, verificar_update
 from sysnux.modules import optimizations, packages, gpu, tools
 from sysnux.ui.widgets.output_console import OutputConsole
 
@@ -37,6 +42,7 @@ class MainWindow(QMainWindow):
         self._current_runner = None
         self._task_queue = []
         self._is_running = False
+        self._cancelling = False
 
         self._setup_style()
         self._setup_ui()
@@ -48,17 +54,49 @@ class MainWindow(QMainWindow):
             QLabel { color: #d4d4d4; }
             QCheckBox {
                 color: #d4d4d4;
-                spacing: 8px;
+                spacing: 10px;
                 font-size: 13px;
+                padding: 3px 0;
             }
             QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 3px;
-                border: 2px solid #569cd6;
+                width: 22px;
+                height: 22px;
+                border-radius: 4px;
+                border: 2px solid #6e6e6e;
+                background-color: #1e1e1e;
             }
             QCheckBox::indicator:checked {
-                background-color: #569cd6;
+                background-color: #4ec9b0;
+                border: 2px solid #4ec9b0;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #569cd6;
+            }
+            QCheckBox::indicator:checked:hover {
+                border: 2px solid #3da890;
+            }
+            QRadioButton {
+                color: #d4d4d4;
+                spacing: 10px;
+                font-size: 13px;
+                padding: 3px 0;
+            }
+            QRadioButton::indicator {
+                width: 22px;
+                height: 22px;
+                border-radius: 11px;
+                border: 2px solid #6e6e6e;
+                background-color: #1e1e1e;
+            }
+            QRadioButton::indicator:checked {
+                background-color: #4ec9b0;
+                border: 2px solid #4ec9b0;
+            }
+            QRadioButton::indicator:hover {
+                border: 2px solid #569cd6;
+            }
+            QRadioButton::indicator:checked:hover {
+                border: 2px solid #3da890;
             }
             QPushButton {
                 background-color: #0e639c;
@@ -76,15 +114,16 @@ class MainWindow(QMainWindow):
                 color: #d4d4d4;
                 font-size: 14px;
                 font-weight: bold;
-                border: 1px solid #3c3c3c;
+                border: 1px solid #569cd6;
                 border-radius: 6px;
                 margin-top: 12px;
-                padding-top: 16px;
+                padding: 16px 8px 8px 8px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 12px;
-                padding: 0 6px;
+                padding: 0 8px;
+                color: #569cd6;
             }
             QProgressBar {
                 border: 1px solid #3c3c3c;
@@ -130,11 +169,15 @@ class MainWindow(QMainWindow):
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(16, 12, 16, 12)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
 
-        header = QLabel("Sysnux — Pós-formatação Profissional")
-        header.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        header.setStyleSheet("color: #569cd6; padding-bottom: 8px;")
+        title_bar = self._create_title_bar()
+        right_layout.addWidget(title_bar)
+
+        content_area = QWidget()
+        content_layout = QVBoxLayout(content_area)
+        content_layout.setContentsMargins(16, 12, 16, 12)
 
         self.stacked = QStackedWidget()
         self.pages = {}
@@ -158,11 +201,32 @@ class MainWindow(QMainWindow):
         self.btn_cancel = QPushButton("■ Cancelar")
         self.btn_cancel.setFixedWidth(130)
         self.btn_cancel.setEnabled(False)
-        self.btn_cancel.setStyleSheet("background-color: #f44747;")
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #c53030;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #e05353;
+            }
+            QPushButton:disabled {
+                background-color: #5a1a1a;
+                color: #9a5a5a;
+            }
+            QPushButton:pressed {
+                background-color: #8b2020;
+            }
+        """)
         self.btn_cancel.clicked.connect(self._cancel)
 
         self.progress = QProgressBar()
         self.progress.setVisible(False)
+        self.progress.setValue(0)
 
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.btn_clear)
@@ -173,14 +237,82 @@ class MainWindow(QMainWindow):
         self.console = OutputConsole()
         self.console.setMinimumHeight(160)
 
-        right_layout.addWidget(header)
-        right_layout.addWidget(self.stacked, 1)
-        right_layout.addLayout(console_header)
-        right_layout.addLayout(btn_layout)
-        right_layout.addWidget(self.progress)
-        right_layout.addWidget(self.console, 0)
+        content_layout.addWidget(self.stacked, 1)
+        content_layout.addLayout(console_header)
+        content_layout.addLayout(btn_layout)
+        content_layout.addWidget(self.progress)
+        content_layout.addWidget(self.console, 0)
 
+        right_layout.addWidget(content_area, 1)
         main_layout.addWidget(right_panel, 1)
+
+    def _create_title_bar(self):
+        bar = QFrame()
+        bar.setFixedHeight(44)
+        bar.setStyleSheet("""
+            QFrame {
+                background-color: #1e1e1e;
+                border-bottom: 1px solid #3c3c3c;
+            }
+        """)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(16, 0, 8, 0)
+
+        title = QLabel("Sysnux — Pós-formatação Profissional")
+        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        title.setStyleSheet("color: #569cd6; border: none;")
+        layout.addWidget(title)
+        layout.addStretch()
+
+        btn_minimize = QPushButton("─")
+        btn_minimize.setFixedSize(36, 28)
+        btn_minimize.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #cccccc;
+                border: none;
+                font-size: 14px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #3c3c3c; color: white; }
+        """)
+        btn_minimize.clicked.connect(self.showMinimized)
+
+        self.btn_close = QPushButton("✕")
+        self.btn_close.setFixedSize(36, 28)
+        self.btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #cccccc;
+                border: none;
+                font-size: 14px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #f44747; color: white; }
+        """)
+        self.btn_close.clicked.connect(self._confirm_close)
+
+        layout.addWidget(btn_minimize)
+        layout.addWidget(self.btn_close)
+        return bar
+
+    def _confirm_close(self):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle("Sysnux - Sair")
+        msg.setText("Deseja realmente sair do Sysnux?")
+        msg.setInformativeText("Todas as operações em andamento serão interrompidas.")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        msg.button(QMessageBox.StandardButton.Yes).setText("Sim, sair")
+        msg.button(QMessageBox.StandardButton.No).setText("Cancelar")
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            self.close()
+
+    def closeEvent(self, event):
+        if self._is_running:
+            self._cancel()
+        event.accept()
 
     def _create_sidebar(self):
         sidebar = QFrame()
@@ -194,11 +326,24 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(8, 12, 8, 12)
 
-        logo = QLabel("Sysnux")
-        logo.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
-        logo.setStyleSheet("color: #569cd6; padding: 8px 0 16px 8px;")
+        logo_label = QLabel()
+        logo_pixmap = QPixmap()
+        logo_paths = [
+            "logo/logo.png",
+            "sysnux/assets/logo.png",
+        ]
+        for path in logo_paths:
+            if logo_pixmap.load(path):
+                break
+        if not logo_pixmap.isNull():
+            logo_label.setPixmap(logo_pixmap.scaledToWidth(180))
+            logo_label.setStyleSheet("padding: 4px 0 12px 0;")
+        else:
+            logo_label.setText("Sysnux")
+            logo_label.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+            logo_label.setStyleSheet("color: #569cd6; padding: 8px 0 16px 8px;")
 
-        layout.addWidget(logo)
+        layout.addWidget(logo_label)
 
         self.sidebar_buttons = []
         for i, (icon, name, key) in enumerate(PAGES):
@@ -218,15 +363,15 @@ class MainWindow(QMainWindow):
                     color: white;
                 }
             """)
-            btn.clicked.connect(lambda checked, idx=i: self._switch_page(idx))
+            btn.clicked.connect(partial(self._switch_page, i))
             layout.addWidget(btn)
             self.sidebar_buttons.append(btn)
 
         layout.addStretch()
 
-        status_label = QLabel("v1.0.0 · Linux")
-        status_label.setStyleSheet("color: #6e6e6e; font-size: 11px; padding: 8px;")
-        layout.addWidget(status_label)
+        self.status_label = QLabel(f"v{__version__} · Linux")
+        self.status_label.setStyleSheet("color: #6e6e6e; font-size: 11px; padding: 8px;")
+        layout.addWidget(self.status_label)
 
         return sidebar
 
@@ -304,17 +449,25 @@ class MainWindow(QMainWindow):
             }
         """)
         self.dashboard_info.setWordWrap(True)
+        btn_row = QHBoxLayout()
         refresh_btn = QPushButton("🔄 Atualizar")
         refresh_btn.setFixedWidth(130)
         refresh_btn.clicked.connect(self._load_dashboard)
+        check_upd_btn = QPushButton("📥 Verificar Atualização")
+        check_upd_btn.setFixedWidth(180)
+        check_upd_btn.clicked.connect(self._check_update)
+        btn_row.addWidget(refresh_btn)
+        btn_row.addWidget(check_upd_btn)
+        btn_row.addStretch()
         layout.addWidget(self.dashboard_info)
-        layout.addWidget(refresh_btn)
+        layout.addLayout(btn_row)
         layout.addStretch()
         return widget
 
     def _load_dashboard(self):
         info = collect_system_info()
         text = f"""
+    Versão      : v{__version__}
     Hostname    : {info['hostname']}
     Sistema     : {info['distro']}
     Kernel      : {info['kernel']}
@@ -328,6 +481,21 @@ class MainWindow(QMainWindow):
     Internet    : {"✅ OK" if check_internet() else "❌ Sem conexão"}
         """
         self.dashboard_info.setText(text)
+        self.status_label.setText(f"v{__version__} · Linux")
+
+    def _check_update(self):
+        self.console.write("[INFO] Verificando atualizações no GitHub...")
+        has_update, latest, url = verificar_update()
+        if not latest:
+            self.console.write("[AVISO] Não foi possível verificar atualizações (sem internet ou GitHub indisponível)")
+            return
+        if has_update:
+            self.console.write(f"[INFO] ⬆ NOVA VERSÃO disponível: {latest}")
+            self.console.write(f"[INFO] Baixe em: {url}")
+            self.status_label.setText(f"⬆ {latest} disponível!")
+            self.status_label.setStyleSheet("color: #f0ad4e; font-size: 11px; font-weight: bold; padding: 8px;")
+        else:
+            self.console.write(f"[OK] Você já está na versão mais recente ({__version__})")
 
     def _create_setup_page(self):
         widget, layout = self._page_widget("🚀 Setup Completo")
@@ -406,7 +574,7 @@ class MainWindow(QMainWindow):
         gpu_group = QGroupBox("NVIDIA")
         nv_layout = QVBoxLayout()
         self.nv_radio = QButtonGroup(self)
-        for i, text in enumerate(["Pular", "NVIDIA 535 (Estável)", "NVIDIA 545 (Recente)", "NVIDIA 535 + CUDA"]):
+        for i, text in enumerate(["Pular", "NVIDIA 535 (Estável)", "NVIDIA 550 (Recente)", "NVIDIA 535 + CUDA"]):
             rb = QRadioButton(text)
             if i == 0:
                 rb.setChecked(True)
@@ -447,6 +615,7 @@ class MainWindow(QMainWindow):
         self.browser_checks = {}
         browsers = [
             ("chrome", "Google Chrome Estável"),
+            ("chrome_beta", "Google Chrome Beta"),
             ("firefox", "Mozilla Firefox (PPA)"),
             ("brave", "Brave Browser"),
             ("edge", "Microsoft Edge"),
@@ -466,7 +635,10 @@ class MainWindow(QMainWindow):
         self.dev_checks = {}
         tasks = [
             ("basics", "Git + build-essential"),
-            ("vscode", "Visual Studio Code (snap)"),
+            ("python311", "Python 3.11 (PPA deadsnakes)"),
+            ("nodejs", "Node.js + npm (LTS via NodeSource)"),
+            ("ghostty", "Ghostty Terminal"),
+            ("opencode", "Opencode CLI"),
             ("docker", "Docker"),
         ]
         for key, label in tasks:
@@ -483,11 +655,16 @@ class MainWindow(QMainWindow):
         self.pkg_checks = {}
         tasks = [
             ("flatpak", "Instalar Flatpak + Flathub"),
+            ("flatpak_update", "Atualizar Flatpaks"),
+            ("flatpak_remove", "Remover Flatpak (apps + serviço)"),
             ("snap", "Instalar Snap (snapd)"),
+            ("snap_update", "Atualizar Snaps"),
+            ("snap_remove", "Remover Snap (snaps + serviço)"),
         ]
         for key, label in tasks:
             cb = QCheckBox(f"  {label}")
-            cb.setChecked(True)
+            if "remove" not in key:
+                cb.setChecked(True)
             layout.addWidget(cb)
             self.pkg_checks[key] = cb
 
@@ -560,6 +737,8 @@ class MainWindow(QMainWindow):
         self.tools_checks = {}
         tasks = [
             ("diagnostico", "Diagnóstico completo de hardware"),
+            ("usb_pci", "Listar dispositivos USB/PCI"),
+            ("dmi_bios", "Informações DMI/BIOS (dmidecode)"),
             ("smart", "Teste SMART (saúde dos discos)"),
             ("memoria", "Teste de memória RAM"),
             ("stress", "CPU Stress Test"),
@@ -587,20 +766,22 @@ class MainWindow(QMainWindow):
         self.console.write(f"\n[INFO] Iniciando: {PAGES[current_idx][1]}...")
         self.console.write("=" * 50)
 
-        self.progress.setVisible(True)
-        self.progress.setValue(0)
-        self.btn_execute.setEnabled(False)
-        self.btn_cancel.setEnabled(True)
-        self._is_running = True
-
         tasks = self._get_tasks_for_page(current_key)
 
         if not tasks:
             self.console.write("[AVISO] Nenhuma tarefa selecionada.")
-            self._finish_execution(False, "Nenhuma tarefa")
             return
 
         self._task_queue = tasks
+        self._cancelling = False
+        self._is_running = True
+
+        self.progress.setVisible(True)
+        self.progress.setMaximum(len(tasks))
+        self.progress.setValue(0)
+        self.btn_execute.setEnabled(False)
+        self.btn_cancel.setEnabled(True)
+
         self._run_next_task()
 
     def _get_tasks_for_page(self, key):
@@ -694,6 +875,7 @@ class MainWindow(QMainWindow):
         tasks = []
         browser_map = {
             "chrome": ("Chrome", packages.instalar_chrome),
+            "chrome_beta": ("Chrome Beta", packages.instalar_chrome_beta),
             "firefox": ("Firefox", packages.instalar_firefox),
             "brave": ("Brave", packages.instalar_brave),
             "edge": ("Edge", packages.instalar_edge),
@@ -713,6 +895,14 @@ class MainWindow(QMainWindow):
                 ok, _ = packages.apt_install("git build-essential")
                 yield f"{'[OK]' if ok else '[FALHA]'} Git + build-essential"
             tasks.append(("Git/Build", install_basics))
+        if self.dev_checks.get("python311") and self.dev_checks["python311"].isChecked():
+            tasks.append(("Python 3.11", packages.instalar_python311))
+        if self.dev_checks.get("nodejs") and self.dev_checks["nodejs"].isChecked():
+            tasks.append(("Node.js", packages.instalar_nodejs))
+        if self.dev_checks.get("ghostty") and self.dev_checks["ghostty"].isChecked():
+            tasks.append(("Ghostty", packages.instalar_ghostty))
+        if self.dev_checks.get("opencode") and self.dev_checks["opencode"].isChecked():
+            tasks.append(("Opencode", packages.instalar_opencode))
         if self.dev_checks.get("docker") and self.dev_checks["docker"].isChecked():
             def install_docker():
                 yield "[INFO] Instalando Docker..."
@@ -721,27 +911,22 @@ class MainWindow(QMainWindow):
                 run_command("systemctl enable --now docker 2>/dev/null || true")
                 yield "[OK] Docker ativado"
             tasks.append(("Docker", install_docker))
-        if self.dev_checks.get("vscode") and self.dev_checks["vscode"].isChecked():
-            def install_vscode():
-                yield "[INFO] Instalando VS Code..."
-                ok_snap, _ = run_command("command -v snap 2>/dev/null")
-                if ok_snap:
-                    ok, out = run_command("snap install code --classic 2>/dev/null || true")
-                    if "error" not in out.lower():
-                        yield "[OK] VS Code instalado (snap)"
-                    else:
-                        yield "[AVISO] Falha ao instalar VS Code via snap"
-                else:
-                    yield "[AVISO] VS Code não instalado (snap não disponível. Use flatpak ou .deb manualmente.)"
-            tasks.append(("VS Code", install_vscode))
         return tasks
 
     def _get_package_tasks(self):
         tasks = []
         if self.pkg_checks.get("flatpak") and self.pkg_checks["flatpak"].isChecked():
             tasks.append(("Flatpak", packages.instalar_flatpak_suporte))
+        if self.pkg_checks.get("flatpak_update") and self.pkg_checks["flatpak_update"].isChecked():
+            tasks.append(("Flatpak Update", packages.atualizar_flatpaks))
+        if self.pkg_checks.get("flatpak_remove") and self.pkg_checks["flatpak_remove"].isChecked():
+            tasks.append(("Flatpak Remove", packages.remover_flatpak))
         if self.pkg_checks.get("snap") and self.pkg_checks["snap"].isChecked():
             tasks.append(("Snap", packages.instalar_snap_suporte))
+        if self.pkg_checks.get("snap_update") and self.pkg_checks["snap_update"].isChecked():
+            tasks.append(("Snap Update", packages.atualizar_snaps))
+        if self.pkg_checks.get("snap_remove") and self.pkg_checks["snap_remove"].isChecked():
+            tasks.append(("Snap Remove", packages.remover_snap))
         return tasks
 
     def _get_cleanup_tasks(self):
@@ -760,6 +945,10 @@ class MainWindow(QMainWindow):
                 yield "[INFO] Limpeza profunda..."
                 run_command("apt-get autoremove --purge -y")
                 run_command("dpkg -l | awk '/^rc/ {print $2}' | xargs -r dpkg --purge 2>/dev/null || true")
+                ok, out = run_command("command -v deborphan 2>/dev/null")
+                if ok:
+                    run_command("deborphan | xargs -r apt-get remove --purge -y 2>/dev/null || true")
+                    yield "[OK] Pacotes órfãos removidos (deborphan)"
                 yield "[OK] Purge concluído"
             tasks.append(("Limpeza Profunda", deep_clean))
         if checks.get("kernels") and checks["kernels"].isChecked():
@@ -894,6 +1083,10 @@ class MainWindow(QMainWindow):
         checks = self.tools_checks
         if checks.get("diagnostico") and checks["diagnostico"].isChecked():
             tasks.append(("Hardware", tools.diagnostico_hardware))
+        if checks.get("usb_pci") and checks["usb_pci"].isChecked():
+            tasks.append(("USB/PCI", tools.listar_dispositivos_usb_pci))
+        if checks.get("dmi_bios") and checks["dmi_bios"].isChecked():
+            tasks.append(("DMI/BIOS", tools.info_dmi_bios))
         if checks.get("smart") and checks["smart"].isChecked():
             tasks.append(("SMART", tools.teste_smart))
         if checks.get("memoria") and checks["memoria"].isChecked():
@@ -913,19 +1106,27 @@ class MainWindow(QMainWindow):
         return tasks
 
     def _run_next_task(self):
-        if not self._task_queue:
-            self._finish_execution(True, "Todas as tarefas concluídas")
+        if self._cancelling or not self._task_queue:
+            if not self._cancelling:
+                self._finish_execution(True, "Todas as tarefas concluídas")
             return
 
         name, func, *extra = self._task_queue.pop(0)
         args = extra[0] if extra else ()
+
+        total = self.progress.maximum()
+        done = total - len(self._task_queue) - 1
+        self.progress.setValue(max(0, done))
 
         self.console.write(f"\n{'=' * 50}")
         self.console.write(f"[INFO] ▶ Executando: {name}")
         self.console.write(f"{'=' * 50}")
 
         def task_wrapper():
-            yield from func(*args) if isinstance(args, tuple) else func()
+            if isinstance(args, tuple) and args:
+                yield from func(*args)
+            else:
+                yield from func()
 
         self._current_runner = TaskRunner(task_wrapper)
         self._current_runner.output.connect(self._on_task_output)
@@ -955,6 +1156,9 @@ class MainWindow(QMainWindow):
             self.console.write(f"[INFO] {message}")
 
     def _cancel(self):
+        if self._cancelling:
+            return
+        self._cancelling = True
         if self._current_runner and self._current_runner.isRunning():
             self._current_runner.cancel()
             self.console.write("[AVISO] Operação cancelada pelo usuário.")

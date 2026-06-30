@@ -1,6 +1,6 @@
 # Sysnux — Pós-formatação Profissional para Linux
 
-**Sysnux** é uma ferramenta gráfica completa para configurar, otimizar e diagnosticar sistemas Linux pós-formatação. Portabilidade do script Bash `pos-formatacao_linux.sh` para Python com interface gráfica moderna (PySide6).
+**Sysnux** é uma ferramenta gráfica completa para configurar, otimizar e diagnosticar sistemas Linux pós-formatação. Portabilidade do script Bash pos-formatacao_linux.sh para Python com interface gráfica moderna (PySide6).
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![PySide6](https://img.shields.io/badge/PySide6-6.11-green)
@@ -33,7 +33,7 @@
 - Linux Ubuntu/Debian (ou derivado)
 - Python 3.10+
 - PySide6
-- Acesso root (via `pkexec`)
+- Acesso root (via pkexec)
 
 ---
 
@@ -41,16 +41,16 @@
 
 ### Via executável (recomendado)
 
-```bash
+`ash
 # Baixe o binário da página de releases
 chmod +x Sysnux
-pkexec env DISPLAY=$DISPLAY ./Sysnux
-```
+pkexec env DISPLAY= ./Sysnux
+`
 
 ### Via fonte (desenvolvimento)
 
-```bash
-git clone https://github.com/seu-usuario/sysnux.git
+`ash
+git clone https://github.com/braulioreis27/sysnux.git
 cd sysnux
 
 # Crie o ambiente virtual
@@ -62,19 +62,19 @@ pip install -r Sysnux/requirements.txt
 
 # Execute
 python3 Sysnux/main.py
-```
+`
 
 ---
 
 ## Uso
 
-```bash
+`ash
 # Executar com interface gráfica (solicita root automaticamente)
 python3 Sysnux/main.py
 
 # OU via binário compilado
-pkexec env DISPLAY=$DISPLAY ./Sysnux/dist/Sysnux
-```
+pkexec env DISPLAY= ./Sysnux/dist/Sysnux
+`
 
 1. Navegue pelas 12 páginas na sidebar
 2. Marque as tarefas desejadas
@@ -85,7 +85,7 @@ pkexec env DISPLAY=$DISPLAY ./Sysnux/dist/Sysnux
 
 ## Estrutura do Projeto
 
-```
+`
 Sysnux/
 ├── main.py              # Entrypoint (checa root, pkexec)
 ├── build.sh             # Compilação PyInstaller
@@ -105,23 +105,23 @@ Sysnux/
 │       ├── runner.py        # run_command + TaskRunner (QThread)
 │       └── logging.py       # Log para /var/log
 └── dist/                 # Executável compilado
-```
+`
 
 ---
 
 ## Arquitetura
 
 - **Interface**: PySide6 (Qt for Python) com tema escuro customizado
-- **Threading**: Cada operação é um generator executado em `QThread` via `TaskRunner`. A GUI nunca bloqueia
-- **Elevação**: `pkexec` no startup para operações root
-- **Console**: Widget `OutputConsole` com cores por nível (`[OK]`, `[ERRO]`, `[AVISO]`, `[INFO]`)
-- **Módulos**: Funções generator que `yield` strings de progresso para a GUI
+- **Threading**: Cada operação é um generator executado em QThread via TaskRunner. A GUI nunca bloqueia
+- **Elevação**: pkexec no startup para operações root
+- **Console**: Widget OutputConsole com cores por nível ([OK], [ERRO], [AVISO], [INFO])
+- **Módulos**: Funções generator que yield strings de progresso para a GUI
 
 ---
 
 ## Script Original
 
-O script Bash original de 1852 linhas (`pos-formatacao_linux.sh`) serve como referência canônica para implementação de novas features.
+O script Bash original de 1852 linhas (pos-formatacao_linux.sh) serve como referência canônica para implementação de novas features.
 
 ---
 
